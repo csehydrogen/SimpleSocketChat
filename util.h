@@ -29,11 +29,8 @@ bool myread(int fd, void *_buf, size_t count) {
     char *buf = (char*)_buf;
     do {
         ssize_t ret = read(fd, buf, count);
-        if (ret == 0) {
-            break;
-        } else if (ret == -1 && errno != EINTR) {
-            perror_exit();
-        }
+        if (ret == 0) break;
+        if (ret == -1 && errno != EINTR) perror_exit();
         buf += ret;
         count -= ret;
     } while (count > 0);
@@ -44,9 +41,8 @@ bool mywrite(int fd, void *_buf, size_t count) {
     char *buf = (char*)_buf;
     do {
         ssize_t ret = write(fd, buf, count);
-        if (ret == -1 && errno != EINTR) {
-            perror_exit();
-        }
+        if (ret == 0) break;
+        if (ret == -1 && errno != EINTR) perror_exit();
         buf += ret;
         count -= ret;
     } while (count > 0);
@@ -101,4 +97,12 @@ int find_uid_by_uname(char *uname, int len) {
     if (strncmp(uname, "C", len) == 0) return 2;
     if (strncmp(uname, "D", len) == 0) return 3;
     return -1;
+}
+
+const char* find_uname_by_uid(int uid) {
+    if (uid == 0) return "A";
+    if (uid == 1) return "B";
+    if (uid == 2) return "C";
+    if (uid == 3) return "D";
+    return "?";
 }

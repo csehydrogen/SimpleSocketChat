@@ -1,4 +1,4 @@
-CXXFLAGS = -g
+CXXFLAGS = -std=c++11 -g
 LDFLAGS = -pthread
 
 TARGETS = server client
