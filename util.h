@@ -42,6 +42,7 @@ bool mywrite(int fd, void *_buf, size_t count) {
     do {
         ssize_t ret = write(fd, buf, count);
         if (ret == 0) break;
+        if (ret == -1 && errno == EBADF) break;
         if (ret == -1 && errno != EINTR) perror_exit();
         buf += ret;
         count -= ret;

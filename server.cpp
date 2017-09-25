@@ -104,6 +104,7 @@ void process_packets(thread_info *tinfo) {
                 }
                 if (!write_packet(fd, ps, pssz)) return;
                 user_fd[uid] = fd;
+                pthread_cond_signal(&eqc);
                 fprintf(stderr, "logged in (uid = %d)\n", uid);
                 break;
             } else { // fail (uname not found)
@@ -216,7 +217,9 @@ void process_packets(thread_info *tinfo) {
                 generate_int(&psc, uid);
                 broadcast(ps, pssz);
 
+                close(fd);
                 fprintf(stderr, "leave (uid = %d)\n", uid);
+                return;
             } else {
                 free(pr);
                 fprintf(stderr, "Wrong status (status = %d)\n", status);

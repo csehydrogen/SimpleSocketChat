@@ -24,13 +24,26 @@ int read_line() {
 void* handle_send(void *arg) {
     while (true) {
         int msg_len = read_line();
-        if (strcmp(buf, "/leave") == 0) { // leave
+        if (strncmp(buf, "/invite ", 8) == 0) { // invite
+            int uid = find_uid_by_uname(buf + 8, 1);
+            if (uid != -1) {
+                int pssz = sizeof(int) * 3;
+                char *ps = (char*)malloc(pssz), *psc = ps;
+                generate_int(&psc, 4);
+                generate_int(&psc, 1);
+                generate_int(&psc, uid);
+                if (!write_packet(fd, ps, pssz)) myerror_exit("");
+            } else {
+                printf("No such user\n");
+            }
+        } else if (strncmp(buf, "/leave", 6) == 0) { // leave
             int pssz = sizeof(int) * 2;
             char *ps = (char*)malloc(pssz), *psc = ps;
             generate_int(&psc, 4);
             generate_int(&psc, 2);
             if (!write_packet(fd, ps, pssz)) myerror_exit("");
             printf("Leaving...\n");
+            close(fd);
             exit(0);
         } else {
             int pssz = sizeof(int) * 3 + msg_len;
@@ -87,7 +100,7 @@ int main(int argc, char **argv) {
                 int uid = consume_int(&prc);
                 unread = consume_int(&prc);
                 free(pr);
-                printf("login success (uid = %d, # of unread msg = %d)\n", uid, unread);
+                printf("login success!\n");
                 break;
             } else if (status == 1) {
                 free(pr);
@@ -126,6 +139,11 @@ int main(int argc, char **argv) {
                 printf("Accepted!\n");
                 break;
             } else {
+                int pssz = sizeof(int) * 2;
+                char *ps = (char*)malloc(pssz), *psc = ps;
+                generate_int(&psc, 3);
+                generate_int(&psc, 1);
+                if (!write_packet(fd, ps, pssz)) myerror_exit("");
                 printf("Rejected!\n");
             }
         } else {
