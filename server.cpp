@@ -18,6 +18,13 @@ struct thread_info {
 const int MAX_USER = 4;
 int user_fd[MAX_USER] = {-1, -1, -1, -1};
 bool in_group[MAX_USER] = {true, false, false, false};
+
+/*
+ * Every time event happened (msg, invitation, and etc.), event is pushed into eq.
+ * handle_eq thread monitors eq in Round-Robin manner, and send appropriate packet to clients.
+ * eq is protected by eql lock.
+ * When there is no event in eq, handle_eq thread sleeps, and eqc is used to wake up the thread.
+ */
 struct event {
     char *ps;
     int pssz;
@@ -27,6 +34,9 @@ std::queue<event> eq[MAX_USER];
 pthread_mutex_t eql = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t eqc = PTHREAD_COND_INITIALIZER;
 
+/*
+ * Monitors eq in Round-Robin manner.
+ */
 void* handle_eq(void *arg) {
     fprintf(stderr, "handle_eq thread is created.\n");
 
@@ -34,7 +44,7 @@ void* handle_eq(void *arg) {
     while (true) {
         bool flag = true;
         for (int i = 0; i < MAX_USER; ++i) {
-            if (user_fd[i] != -1 && eq[i].size()) {
+            if (user_fd[i] != -1 && eq[i].size()) { // user i logged in and have some packets to receive
                 flag = false;
                 char *ps = eq[i].front().ps;
                 int pssz = eq[i].front().pssz;
@@ -53,6 +63,9 @@ void* handle_eq(void *arg) {
     pthread_mutex_unlock(&eql);
 }
 
+/*
+ * Send packet to specific user.
+ */
 void send_to(int i, char *ps, int pssz) {
     pthread_mutex_lock(&eql);
     eq[i].push(event(ps, pssz));
@@ -60,6 +73,9 @@ void send_to(int i, char *ps, int pssz) {
     pthread_cond_signal(&eqc);
 }
 
+/*
+ * Send packet to all users.
+ */
 void broadcast(char *ps, int pssz) {
     for (int i = 0; i < MAX_USER; ++i) {
         if (in_group[i]) {
@@ -74,6 +90,10 @@ void broadcast(char *ps, int pssz) {
     pthread_cond_signal(&eqc);
 }
 
+/*
+ * Continuously receive packets from client and process.
+ * There are three phases : login, group invitation accept, and msg loop.
+ */
 void process_packets(thread_info *tinfo) {
     int fd = tinfo->client_sockfd, uid;
     while (true) { // login loop
@@ -136,7 +156,7 @@ void process_packets(thread_info *tinfo) {
                 int pssz = sizeof(int) * 3;
                 char *ps = (char*)malloc(pssz), *psc = ps;
                 generate_int(&psc, 5);
-                generate_int(&psc, 3);
+                generate_int(&psc, 4);
                 generate_int(&psc, uid);
                 broadcast(ps, pssz);
 
@@ -146,7 +166,7 @@ void process_packets(thread_info *tinfo) {
                 int pssz = sizeof(int) * 3;
                 char *ps = (char*)malloc(pssz), *psc = ps;
                 generate_int(&psc, 5);
-                generate_int(&psc, 4);
+                generate_int(&psc, 5);
                 generate_int(&psc, uid);
                 broadcast(ps, pssz);
 
@@ -215,10 +235,27 @@ void process_packets(thread_info *tinfo) {
                 generate_int(&psc, 5);
                 generate_int(&psc, 2);
                 generate_int(&psc, uid);
-                broadcast(ps, pssz);
-
                 close(fd);
+                user_fd[uid] = -1;
+                in_group[uid] = false;
+                pthread_mutex_lock(&eql);
+                eq[uid] = std::queue<event>();
+                pthread_mutex_unlock(&eql);
+                broadcast(ps, pssz);
                 fprintf(stderr, "leave (uid = %d)\n", uid);
+                return;
+            } else if (status == 3) { // exit
+                free(pr);
+
+                int pssz = sizeof(int) * 3;
+                char *ps = (char*)malloc(pssz), *psc = ps;
+                generate_int(&psc, 5);
+                generate_int(&psc, 3);
+                generate_int(&psc, uid);
+                close(fd);
+                user_fd[uid] = -1;
+                broadcast(ps, pssz);
+                fprintf(stderr, "exit (uid = %d)\n", uid);
                 return;
             } else {
                 free(pr);
@@ -233,6 +270,9 @@ void process_packets(thread_info *tinfo) {
     }
 }
 
+/*
+ * Just wrapper for process_packets.
+ */
 void* handle_client(void *arg) {
     thread_info *tinfo = (thread_info*)arg;
 
@@ -267,6 +307,7 @@ int main(int argc, char **argv) {
     pthread_t handle_eq_tid;
     pthread_create(&handle_eq_tid, NULL, handle_eq, NULL);
 
+    // accept clients and make a thread for each client
     for (int tnum = 0; ; ++tnum) {
         sockaddr_in client_addr;
         socklen_t client_addrlen = sizeof(sockaddr_in);

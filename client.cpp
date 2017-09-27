@@ -9,9 +9,13 @@
 #include "util.h"
 
 int fd;
-
 const int BUFSZ = 256;
 char buf[BUFSZ];
+
+/*
+ * Read a line from stdin, and save to buf without newline character.
+ * Returns number of bytes read.
+ */
 int read_line() {
     fgets(buf, BUFSZ, stdin);
     int n = strlen(buf);
@@ -21,6 +25,9 @@ int read_line() {
     return n;
 }
 
+/*
+ * Infinitely read user input, parse it, and send appropriate packet to server.
+ */
 void* handle_send(void *arg) {
     while (true) {
         int msg_len = read_line();
@@ -45,7 +52,16 @@ void* handle_send(void *arg) {
             printf("Leaving...\n");
             close(fd);
             exit(0);
-        } else {
+        } else if (strncmp(buf, "/exit", 5) == 0) { // exit
+            int pssz = sizeof(int) * 2;
+            char *ps = (char*)malloc(pssz), *psc = ps;
+            generate_int(&psc, 4);
+            generate_int(&psc, 3);
+            if (!write_packet(fd, ps, pssz)) myerror_exit("");
+            printf("Exiting...\n");
+            close(fd);
+            exit(0);
+        } else { // normal msg
             int pssz = sizeof(int) * 3 + msg_len;
             char *ps = (char*)malloc(pssz), *psc = ps;
             generate_int(&psc, 4);
@@ -63,6 +79,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    // connect to server
     char *server_ip = argv[1];
     int server_port = atoi(argv[2]);
 
@@ -78,7 +95,6 @@ int main(int argc, char **argv) {
     fd = server_sockfd;
     int unread;
     while (true) { // login loop
-
         printf("Enter id: ");
         fflush(stdout);
         int uname_len = read_line();
@@ -96,13 +112,13 @@ int main(int argc, char **argv) {
         int prtype = consume_int(&prc);
         if (prtype == 1) {
             int status = consume_int(&prc);
-            if (status == 0) {
+            if (status == 0) { // login success
                 int uid = consume_int(&prc);
                 unread = consume_int(&prc);
                 free(pr);
                 printf("login success!\n");
                 break;
-            } else if (status == 1) {
+            } else if (status == 1) { // login fail
                 free(pr);
                 printf("login fail, try again!\n");
             } else {
@@ -124,13 +140,13 @@ int main(int argc, char **argv) {
         char *pr = read_packet(fd), *prc = pr;
         if (!pr) myerror_exit("");
         int prtype = consume_int(&prc);
-        if (prtype == 2) {
+        if (prtype == 2) { // invited
             free(pr);
 
             printf("invited! y or n? ");
             fflush(stdout);
             read_line();
-            if (strcmp(buf, "y") == 0) {
+            if (strcmp(buf, "y") == 0) { // invitation accept
                 int pssz = sizeof(int) * 2;
                 char *ps = (char*)malloc(pssz), *psc = ps;
                 generate_int(&psc, 3);
@@ -138,7 +154,7 @@ int main(int argc, char **argv) {
                 if (!write_packet(fd, ps, pssz)) myerror_exit("");
                 printf("Accepted!\n");
                 break;
-            } else {
+            } else { // invitation reject
                 int pssz = sizeof(int) * 2;
                 char *ps = (char*)malloc(pssz), *psc = ps;
                 generate_int(&psc, 3);
@@ -171,21 +187,30 @@ int main(int argc, char **argv) {
                 int msg_len = consume_int(&prc);
                 char *msg = consume_bytes(&prc, msg_len);
                 free(pr);
-                printf("[%s] %*s\n", find_uname_by_uid(uid), msg_len, msg);
+                printf("[%s] ", find_uname_by_uid(uid));
+                fflush(stdout);
+                write(STDOUT_FILENO, msg, msg_len);
+                printf("\n");
+                fflush(stdout);
+                free(msg);
             } else if (status == 1) { // invitation
                 int uid = consume_int(&prc);
                 int invitee = consume_int(&prc);
                 free(pr);
                 printf("[%s invited %s]\n", find_uname_by_uid(uid), find_uname_by_uid(invitee));
-            } else if (status == 2) {
+            } else if (status == 2) { // someone left
                 int uid = consume_int(&prc);
                 free(pr);
                 printf("[%s left]\n", find_uname_by_uid(uid));
-            } else if (status == 3) {
+            } else if (status == 3) { // someone exit
+                int uid = consume_int(&prc);
+                free(pr);
+                printf("[%s exit]\n", find_uname_by_uid(uid));
+            } else if (status == 4) { // someone accepted invitation
                 int uid = consume_int(&prc);
                 free(pr);
                 printf("[%s accepted invitation]\n", find_uname_by_uid(uid));
-            } else if (status == 4) {
+            } else if (status == 5) { // someone rejected invitation
                 int uid = consume_int(&prc);
                 free(pr);
                 printf("[%s rejected invitation]\n", find_uname_by_uid(uid));
